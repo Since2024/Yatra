@@ -27,8 +27,8 @@
     "bookings": {
       ".read": "auth != null",
       "$bookingId": {
-        ".read": "auth != null && (data.child('passengerId').val() === auth.uid || data.child('busId').val() === auth.uid || data.child('driverId').val() === auth.uid || root.child('buses').child(data.child('busId').val()).child('driverId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
-        ".write": "auth != null && (!data.exists() || data.child('passengerId').val() === auth.uid || data.child('busId').val() === auth.uid || data.child('driverId').val() === auth.uid || root.child('buses').child(data.child('busId').val()).child('driverId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".read": "auth != null && data.child('passengerId').val() === auth.uid",
+        ".write": "auth != null && data.child('passengerId').val() === auth.uid",
         ".validate": "newData.hasChildren(['id','passengerId','busId','passengerName','phoneNumber','numberOfPassengers','pickupLocation','dropoffLocation','fare','status','timestamp'])"
       },
       ".indexOn": ["busId", "passengerId", "driverId"]
@@ -46,6 +46,7 @@
       ".read": "auth != null",
       ".indexOn": ["driverId", "passengerId", "status", "createdAt"],
       "$tripId": {
+        ".read": "auth != null && (data.child('passengerId').val() === auth.uid || data.child('driverId').val() === auth.uid)",
         ".write": "auth != null && (!data.exists() || data.child('passengerId').val() === auth.uid || data.child('driverId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
         ".validate": "newData.hasChildren(['id','driverId','passengerId','status','createdAt'])"
       }
@@ -53,6 +54,7 @@
     "tripLocations": {
       ".read": "auth != null",
       "$tripId": {
+        ".read": "auth != null && (root.child('trips').child($tripId).child('passengerId').val() === auth.uid || root.child('trips').child($tripId).child('driverId').val() === auth.uid)",
         ".write": "auth != null && (!data.exists() || root.child('trips').child($tripId).child('passengerId').val() === auth.uid || root.child('trips').child($tripId).child('driverId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || !root.child('trips').child($tripId).exists())"
       }
     },

@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Keypair } from '@solana/web3.js';
+
+// Required env vars for Solana route tests
+process.env.SOLANA_RPC_URL = 'https://api.devnet.solana.com';
+process.env.TRRL_PROGRAM_ID = '9BvgVETSbpoccubSqkTZUuqaTaZVwPXzvhDi4ies88HN';
+const testKeypair = Keypair.generate();
+process.env.SOLANA_KEYPAIR = JSON.stringify(Array.from(testKeypair.secretKey));
 
 type DbState = Record<string, any>;
+
+const PLACEHOLDER_WALLET = 'So11111111111111111111111111111111111111112';
 
 function createSnapshot(value: any) {
   return {
@@ -13,7 +22,7 @@ function createMockAdminDb(state: DbState, updates: Array<{ path: string; value:
   return {
     ref: (path: string) => ({
       get: async () => createSnapshot(state[path]),
-      once: async () => createSnapshot(state[path]),
+      once: async (_event?: string) => createSnapshot(state[path]),
       set: async (value: any) => {
         state[path] = value;
       },
@@ -30,7 +39,7 @@ describe('solana API integration boundaries', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    process.env.SOLANA_SERVER_KEY = '11111111111111111111111111111111';
+    process.env.SOLANA_SERVER_PRIVATE_KEY = JSON.stringify(Array.from(testKeypair.secretKey));
   });
 
   it('mint-ticket is deterministic and rejects passenger mismatch', async () => {
@@ -100,21 +109,26 @@ describe('solana API integration boundaries', () => {
     const state: DbState = {
       'trips/t1': {
         id: 't1',
+        tripId: 't1',
+        bookingId: 'booking-t1',
         status: 'active',
         gpsVerifiedAt: null,
         escrowStatus: 'locked',
         passengerId: 'p1',
         driverId: 'd1',
         amountLamports: 1000,
+        driverWallet: PLACEHOLDER_WALLET,
       },
       'bookings/t1': {
         id: 't1',
+        tripId: 't1',
+        bookingId: 'booking-t1',
         status: 'confirmed',
         escrowStatus: 'locked',
         passengerId: 'p1',
         busId: 'd1',
         amountLamports: 1000,
-        driverWalletAddress: 'driver-wallet',
+        driverWalletAddress: PLACEHOLDER_WALLET,
       },
     };
     const updates: Array<{ path: string; value: any }> = [];
@@ -150,7 +164,7 @@ describe('solana API integration boundaries', () => {
       headers: { 'content-type': 'application/json' },
     }));
     expect(allowed.status).toBe(200);
-    expect(releaseEscrow).toHaveBeenCalledWith(expect.anything(), expect.anything(), 't1', 'driver-wallet', 1000);
+    expect(releaseEscrow).toHaveBeenCalledWith(expect.anything(), expect.anything(), 't1', PLACEHOLDER_WALLET, 1000);
     expect(state['trips/t1'].escrowStatus).toBe('released');
     expect(state['bookings/t1'].escrowStatus).toBe('released');
   });
@@ -159,6 +173,8 @@ describe('solana API integration boundaries', () => {
     const state: DbState = {
       'trips/t2': {
         id: 't2',
+        tripId: 't2',
+        bookingId: 'booking-t2',
         status: 'active',
         createdAt: new Date(Date.now()).toISOString(),
         escrowStatus: 'locked',
@@ -168,13 +184,15 @@ describe('solana API integration boundaries', () => {
       },
       'bookings/t2': {
         id: 't2',
+        tripId: 't2',
+        bookingId: 'booking-t2',
         status: 'confirmed',
         createdAt: new Date(Date.now()).toISOString(),
         escrowStatus: 'locked',
         passengerId: 'p2',
         busId: 'd2',
         amountLamports: 2000,
-        passengerWalletAddress: 'passenger-wallet',
+        passengerWalletAddress: PLACEHOLDER_WALLET,
       },
     };
     const updates: Array<{ path: string; value: any }> = [];
@@ -206,7 +224,7 @@ describe('solana API integration boundaries', () => {
       headers: { 'content-type': 'application/json' },
     }));
     expect(allowed.status).toBe(200);
-    expect(reclaimEscrow).toHaveBeenCalledWith(expect.anything(), expect.anything(), 't2', 'passenger-wallet', 2000);
+    expect(reclaimEscrow).toHaveBeenCalledWith(expect.anything(), expect.anything(), 't2', PLACEHOLDER_WALLET, 2000);
     expect(state['trips/t2'].escrowStatus).toBe('reclaimed');
     expect(state['bookings/t2'].escrowStatus).toBe('reclaimed');
   });
