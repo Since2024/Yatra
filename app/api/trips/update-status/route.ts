@@ -3,6 +3,8 @@ import { cookies } from 'next/headers';
 import { getFirebaseAdminAuth, getAdminDb } from '@/lib/firebaseAdmin';
 import { getConnection, getServerKeypair } from '@/lib/solana/connection';
 import { releaseEscrow } from '@/lib/solana/escrow';
+import { computeTelemetry } from '@/lib/solana/telemetry';
+import { updateRepOnChain } from '@/lib/solana/trrlProgram';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -167,38 +169,118 @@ export async function POST(request: Request) {
 
                 if (status === 'completed') {
                     // Fire-and-forget — trip completion response is not held up by Solana
-                    adminDb.ref(`reputation/drivers/${driverId}`).get().then((repSnap) => {
+                    adminDb.ref(`reputation/drivers/${driverId}`).get().then(async (repSnap) => {
                         const rep = repSnap.val() || {};
                         const driverWallet = finalTripData.driverWalletAddress || rep.driverPubkey;
                         if (!driverWallet) return;
 
-                        const connection = getConnection();
-                        const serverKeypair = getServerKeypair();
+                        const trip = finalTripData;
 
-                        // Hybrid TRRL Mock Telemetry Data for Escrow + PDA update
-                        const mockTelemetry = {
-                            isCompleted: true,
-                            fidelityX100: finalTripData.fidelityX100 ?? 9800, // 98%
-                            arrivalDeltaS: finalTripData.arrivalDeltaS ?? 12, // 12s late
-                            hardBrakes: finalTripData.hardBrakes ?? 0,
-                            deviations: finalTripData.deviations ?? 0,
-                            sosTriggered: finalTripData.sosTriggered ?? 0,
+                        // ── 1. Read real GPS trace and sensor events from Firebase ──────────────────
+                        const [locationSnap, sensorSnap] = await Promise.all([
+                            adminDb.ref(`tripLocations/${tripId}/driver`).get(),
+                            adminDb.ref(`trips/${tripId}/sensorEvents`).get(),
+                        ]);
+
+                        const driverGpsTrace = locationSnap.val() ?? {};
+                        const rawSensorEvents = sensorSnap.val()
+                            ? Object.values(sensorSnap.val() as Record<string, unknown>)
+                            : [];
+
+                        const sensorEvents = rawSensorEvents.filter(
+                            (e): e is { type: 'hard_brake' | 'deviation'; timestamp: number } =>
+                                typeof e === 'object' &&
+                                e !== null &&
+                                'type' in e &&
+                                ((e as { type: unknown }).type === 'hard_brake' ||
+                                    (e as { type: unknown }).type === 'deviation')
+                        );
+
+                        const toUnixMs = (value: unknown): number => {
+                            if (typeof value === 'number') return value;
+                            if (typeof value === 'string') {
+                                const parsed = Date.parse(value);
+                                return Number.isFinite(parsed) ? parsed : Date.now();
+                            }
+                            return Date.now();
                         };
 
+                        // ── 2. Compute telemetry from real GPS data ─────────────────────────────────
+                        const telemetry = computeTelemetry({
+                            tripId,
+                            osrmRouteHash: trip.routeHash ?? '',
+                            driverGpsTrace,
+                            scheduledPickupAt: toUnixMs(trip.scheduledPickupAt ?? trip.createdAt),
+                            actualPickupAt: toUnixMs(trip.arrivedAt ?? trip.completedAt ?? Date.now()),
+                            sensorEvents,
+                        });
+
+                        // Inject SOS flag from trip record
+                        const sosTrigger = trip.sosTriggered ? 1 : 0;
+
+                        // ── 3. Write telemetry snapshot to Firebase (analytics, non-blocking) ───────
+                        adminDb.ref(`trips/${tripId}/telemetry`).update({
+                            fidelityX100: telemetry.fidelityX100,
+                            arrivalDeltaS: telemetry.arrivalDeltaS,
+                            hardBrakes: telemetry.hardBrakes,
+                            deviations: telemetry.deviations,
+                            sosTrigger,
+                            capturedAt: Date.now(),
+                        }).catch((err: Error) =>
+                            console.error('[TRRL] Firebase telemetry write failed:', err.message)
+                        );
+
+                        // ── 4. Fire on-chain TRRL update (non-blocking — Firebase is canonical) ─────
+                        const driverWalletOnChain: string | undefined =
+                            trip.driverWallet ?? trip.driverPubkey ?? driverWallet;
+                        if (driverWalletOnChain) {
+                            updateRepOnChain(driverWalletOnChain, {
+                                isCompleted: true,
+                                fidelityX100: telemetry.fidelityX100,
+                                arrivalDeltaS: telemetry.arrivalDeltaS,
+                                hardBrakes: telemetry.hardBrakes,
+                                deviations: telemetry.deviations,
+                                sosTrigger,
+                                tripRating: 0,
+                                setZkVerified: false,
+                                zkCommitment: new Uint8Array(32),
+                            })
+                                .then((sig: string) => {
+                                    adminDb
+                                        .ref(`reputation/drivers/${trip.driverId ?? driverId}/lastSolanaTx`)
+                                        .set(sig)
+                                        .catch(() => {});
+                                })
+                                .catch((err: Error) =>
+                                    console.error('[TRRL] on-chain update failed, Firebase canonical:', err.message)
+                                );
+                        }
+
+                        const connection = getConnection();
+                        const serverKeypair = getServerKeypair();
                         const amountLamports = finalTripData.amountLamports || 500000;
 
+                        const escrowTelemetry = {
+                            isCompleted: true,
+                            fidelityX100: telemetry.fidelityX100,
+                            arrivalDeltaS: telemetry.arrivalDeltaS,
+                            hardBrakes: telemetry.hardBrakes,
+                            deviations: telemetry.deviations,
+                            sosTriggered: sosTrigger,
+                        };
+
                         return releaseEscrow(
-                            connection, 
-                            serverKeypair, 
-                            tripId, 
-                            driverWallet, 
-                            amountLamports, 
-                            mockTelemetry
+                            connection,
+                            serverKeypair,
+                            tripId,
+                            driverWallet,
+                            amountLamports,
+                            escrowTelemetry
                         ).then((signature) =>
-                            adminDb.ref(`reputation/drivers/${driverId}`).update({ 
-                                lastSolanaTx: signature, 
+                            adminDb.ref(`reputation/drivers/${driverId}`).update({
+                                lastSolanaTx: signature,
                                 escrowStatus: 'released',
-                                lastFidelityX100: mockTelemetry.fidelityX100 
+                                lastFidelityX100: telemetry.fidelityX100,
                             })
                         );
                     }).catch((err: any) =>
