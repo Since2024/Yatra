@@ -16,6 +16,15 @@ export type TripStatus =
   | 'rejected'
   | 'expired';
 
+export interface TripTelemetry {
+  fidelityX100: number;
+  arrivalDeltaS: number;
+  hardBrakes: number;
+  deviations: number;
+  sosTrigger: number;
+  isCompleted: boolean;
+}
+
 export type RequestStatus = 'idle' | 'requesting' | 'accepted' | 'on-trip';
 
 export interface LiveUser {

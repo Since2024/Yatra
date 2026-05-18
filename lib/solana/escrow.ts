@@ -8,8 +8,8 @@ import {
     LAMPORTS_PER_SOL,
     TransactionInstruction
 } from '@solana/web3.js';
-import { AnchorProvider, Program, Idl } from '@coral-xyz/anchor';
-import { YatraTrrlIDL } from './yatra_trrl_idl';
+import { updateRepOnChain } from '@/lib/solana/trrlProgram';
+import type { TripTelemetry } from '@/lib/types';
 
 /**
  * Yatra Escrow System (Digital Payments)
@@ -32,7 +32,8 @@ export interface EscrowState {
     createdAt: number;
 }
 
-export interface TripTelemetry {
+/** Legacy escrow-bundle telemetry (update-status); Gen 2 on-chain uses {@link TripTelemetry} from types. */
+export interface EscrowReleaseTelemetry {
     isCompleted: boolean;
     fidelityX100: number;
     arrivalDeltaS: number;
@@ -149,7 +150,7 @@ export async function releaseEscrow(
     tripId: string,
     driverWallet: string,
     amountLamports: number,
-    telemetry?: TripTelemetry
+    telemetry?: EscrowReleaseTelemetry
 ) {
     const driverPubkey = new PublicKey(driverWallet);
     
@@ -161,43 +162,32 @@ export async function releaseEscrow(
         })
     );
 
-    // Hybrid TRRL Update
-    if (telemetry) {
-        try {
-            // Minimal Wallet implementation to avoid @coral-xyz/anchor NodeWallet export issues in Next.js edge/server build
-            const serverWallet = {
-                publicKey: serverKeypair.publicKey,
-                signTransaction: async (tx: Transaction) => {
-                    tx.partialSign(serverKeypair);
-                    return tx;
-                },
-                signAllTransactions: async (txs: Transaction[]) => {
-                    return txs.map((t) => {
-                        t.partialSign(serverKeypair);
-                        return t;
-                    });
-                }
-            };
-            const provider = new AnchorProvider(connection, serverWallet as any, {});
-            YatraTrrlIDL.address = 'TrrL111111111111111111111111111111111111111';
-            const program = new Program(YatraTrrlIDL as Idl, provider);
-            
-            const [driverRepPda] = PublicKey.findProgramAddressSync(
-                [Buffer.from('driver_rep'), driverPubkey.toBuffer()],
-                program.programId
-            );
+    // Fire-and-forget TRRL on-chain update — Firebase is canonical until confirmed
+    const trrlTelemetry: TripTelemetry & {
+        sosTrigger: number;
+        tripRating: number;
+        setZkVerified: boolean;
+        zkCommitment: Uint8Array;
+    } = {
+        isCompleted: true,
+        fidelityX100: 10000,
+        arrivalDeltaS: 0,
+        hardBrakes: 0,
+        deviations: 0,
+        sosTrigger: 0,
+        tripRating: 0,
+        setZkVerified: false,
+        zkCommitment: new Uint8Array(32),
+    };
 
-            const updateRepIx = await program.methods.updateRep(telemetry).accounts({
-                driverRep: driverRepPda,
-                authority: serverKeypair.publicKey,
-                driver: driverPubkey
-            }).instruction();
-
-            transaction.add(updateRepIx);
-            console.log('[Escrow] Appended TRRL update instruction to escrow release.');
-        } catch (e: any) {
-            console.error('[Escrow] Failed to construct TRRL update instruction:', e.message);
-        }
+    if (driverWallet) {
+        updateRepOnChain(driverWallet, trrlTelemetry)
+            .then((sig: string) => {
+                console.log('[TRRL] escrow release anchored on-chain:', sig);
+            })
+            .catch((err: Error) => {
+                console.error('[TRRL] on-chain update failed, Firebase remains canonical:', err.message);
+            });
     }
 
     return executeWithRetry(async () => {

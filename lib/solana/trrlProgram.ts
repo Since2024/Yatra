@@ -2,12 +2,21 @@ import {
     Connection,
     Keypair,
     PublicKey,
+    Transaction,
 } from '@solana/web3.js';
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
 import NodeWallet from '@coral-xyz/anchor/dist/esm/nodewallet.js';
+import type { TripTelemetry } from '@/lib/types';
+import { getConnection, getServerKeypair } from '@/lib/solana/connection';
+import { YatraTrrlIDL } from '@/lib/solana/yatra_trrl_idl';
 
 // Program ID — matches declare_id! in lib.rs
 export const TRRL_PROGRAM_ID = new PublicKey('9BvgVETSbpoccubSqkTZUuqaTaZVwPXzvhDi4ies88HN');
+
+/** Gen 2 telemetry program (yatra_trrl) — canonical for escrow / trip completion */
+export const GEN2_TRRL_PROGRAM_ID = new PublicKey(
+    process.env.TRRL_PROGRAM_ID ?? 'B8Y64wzmTott2wp5rgP1UyDgAofohU3hfTnmxkMAPFDV',
+);
 
 const DRIVER_REP_SEED    = Buffer.from('driver_rep');
 const PLATFORM_SEED      = Buffer.from('platform');
@@ -306,4 +315,66 @@ export async function readPlatformEntry(
     } catch {
         return null;
     }
+}
+
+export type UpdateRepTelemetry = TripTelemetry & {
+    sosTrigger: number;
+    tripRating: number;
+    setZkVerified: boolean;
+    zkCommitment: Uint8Array;
+};
+
+/**
+ * Updates driver reputation on the Gen 2 yatra_trrl program (telemetry model).
+ * Uses the server wallet as authority. Intended for fire-and-forget callers.
+ */
+export async function updateRepOnChain(
+    driverWalletAddress: string,
+    telemetry: UpdateRepTelemetry,
+): Promise<string> {
+    const connection = getConnection();
+    const serverKeypair = getServerKeypair();
+    const driverPubkey = new PublicKey(driverWalletAddress);
+
+    const serverWallet = {
+        publicKey: serverKeypair.publicKey,
+        signTransaction: async (tx: Transaction) => {
+            tx.partialSign(serverKeypair);
+            return tx;
+        },
+        signAllTransactions: async (txs: Transaction[]) =>
+            txs.map((t) => {
+                t.partialSign(serverKeypair);
+                return t;
+            }),
+    };
+
+    const provider = new AnchorProvider(connection, serverWallet as any, {
+        commitment: 'confirmed',
+    });
+    const idl = { ...YatraTrrlIDL, address: GEN2_TRRL_PROGRAM_ID.toBase58() };
+    const program = new Program(idl, provider);
+
+    const [driverRepPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('driver_rep'), driverPubkey.toBuffer()],
+        GEN2_TRRL_PROGRAM_ID,
+    );
+
+    const tx = await program.methods
+        .updateRep({
+            isCompleted: telemetry.isCompleted,
+            fidelityX100: telemetry.fidelityX100,
+            arrivalDeltaS: telemetry.arrivalDeltaS,
+            hardBrakes: telemetry.hardBrakes,
+            deviations: telemetry.deviations,
+            sosTriggered: telemetry.sosTrigger,
+        })
+        .accounts({
+            driverRep: driverRepPda,
+            authority: serverKeypair.publicKey,
+            driver: driverPubkey,
+        })
+        .rpc({ commitment: 'confirmed' });
+
+    return tx;
 }
