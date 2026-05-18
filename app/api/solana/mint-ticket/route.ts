@@ -71,7 +71,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Server key configuration error' }, { status: 500 });
         }
 
-        const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
+        const connection = new Connection(
+            process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com',
+            'confirmed'
+        );
 
         const metadataDetails: TripTicketMetadata = {
             tripId: bookingId,
