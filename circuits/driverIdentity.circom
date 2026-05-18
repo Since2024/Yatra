@@ -1,35 +1,37 @@
-pragma circom 2.1.6;
+// REBUILD REQUIRED: run 'circom circuits/driverIdentity.circom --r1cs --wasm --sym -o circuits/ && snarkjs groth16 setup ...'
+pragma circom 2.0.0;
 
-include "../node_modules/circomlib/circuits/comparators.circom";
+include "node_modules/circomlib/circuits/comparators.circom";
+include "node_modules/circomlib/circuits/poseidon.circom";
 
 template DriverIdentity() {
-    // Private inputs (stays in the browser, never transmitted)
+    // Private inputs — never leave the client device
     signal input licenseHash;
     signal input birthYear;
     signal input salt;
 
-    // Public outputs (stored on Solana)
+    // Public input — passed by the client, verifiable by anyone
+    signal input currentYear;
+
+    // Public outputs
     signal output commitment;
     signal output ageValid;
 
-    // --- Age Logic ---
-    // Hardcoded to 2026 for hackathon; avoids adding a public input to the prover
-    signal age;
-    age <== 2026 - birthYear;
+    // Commitment: Poseidon(licenseHash, birthYear, salt)
+    component hasher = Poseidon(3);
+    hasher.inputs[0] <== licenseHash;
+    hasher.inputs[1] <== birthYear;
+    hasher.inputs[2] <== salt;
+    commitment <== hasher.out;
 
-    // Driver must be at least 21 years old (matches prover.ts validation)
-    component ageCheck = GreaterEqThan(8); // 8-bit handles ages 0-255
+    // Age verification: currentYear - birthYear >= 21
+    signal age;
+    age <== currentYear - birthYear;
+
+    component ageCheck = GreaterEqThan(8);
     ageCheck.in[0] <== age;
     ageCheck.in[1] <== 21;
     ageValid <== ageCheck.out;
-
-    // --- Binding Commitment ---
-    // Formula: licenseHash + (birthYear * 10^9) + salt
-    // Must match computeCommitment() in lib/zk/prover.ts exactly.
-    signal yearWeight;
-    yearWeight <== birthYear * 1000000000;
-
-    commitment <== licenseHash + yearWeight + salt;
 }
 
-component main = DriverIdentity();
+component main { public [currentYear] } = DriverIdentity();
