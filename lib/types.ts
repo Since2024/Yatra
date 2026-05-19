@@ -16,15 +16,6 @@ export type TripStatus =
   | 'rejected'
   | 'expired';
 
-export interface TripTelemetry {
-  fidelityX100: number;
-  arrivalDeltaS: number;
-  hardBrakes: number;
-  deviations: number;
-  sosTrigger: number;
-  isCompleted: boolean;
-}
-
 export type RequestStatus = 'idle' | 'requesting' | 'accepted' | 'on-trip';
 
 export interface LiveUser {
@@ -212,3 +203,102 @@ export const checkProfileCompletion = (data: PartialProfile, explicitRole?: stri
 
   return true;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRRL: Canonical Gen 2 Type Definitions
+// Aligned across Firebase RTDB ↔ TypeScript ↔ On-Chain Anchor account.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Telemetry values computed from a single completed trip's GPS trace.
+ * Field widths match the Rust on-chain types:
+ *   fidelityX100  → u16 (0–10000)
+ *   arrivalDeltaS → i16 (-32768 to 32767, signed)
+ *   hardBrakes    → u8  (0–255)
+ *   deviations    → u8  (0–255)
+ *   sosTrigger    → u8  (0 or 1)
+ */
+export interface TripTelemetry {
+  fidelityX100:  number;
+  arrivalDeltaS: number;
+  hardBrakes:    number;
+  deviations:    number;
+  sosTrigger:    number;
+  isCompleted:   boolean;
+}
+
+/**
+ * Driver reputation as stored in Firebase RTDB at reputation/drivers/{driverId}.
+ * This is the denormalized fast-read layer. On-chain is authoritative; this
+ * is the optimistic view that updates immediately on trip completion.
+ */
+export interface DriverReputationFirebase {
+  driverPubkey:         string;
+  trustScore:           number;     // 0–1000
+  totalTrips:           number;
+  completedTrips:       number;
+  cancelledTrips:       number;
+  avgRatingX100:        number;     // 0–500 (stars × 100)
+  ratingCount:          number;
+  onTimeArrivals:       number;     // trips where |arrivalDeltaS| < 120
+  sosTriggered:         number;
+  zkVerified:           boolean;
+  zkCommitment:         string;     // hex-encoded Poseidon commitment
+  pathFidelityX100:     number;     // EMA 0–10000
+  avgArrivalDeltaS:     number;     // rolling mean; negative = consistently early
+  hardBrakeEvents:      number;     // lifetime cumulative
+  routeDeviationEvents: number;     // lifetime cumulative
+  lastSolanaTx:         string | null; // most recent confirmed update_rep tx sig
+  lastUpdated:          number;     // unix milliseconds
+}
+
+/**
+ * Driver reputation as decoded from the on-chain DriverReputationProfile PDA.
+ * Seeds: ["driver_rep", driver_pubkey].
+ * Field names use camelCase here; Rust uses snake_case — mapping is 1:1.
+ */
+export interface DriverReputationOnChain {
+  driver:               string;   // Pubkey base58
+  trustScore:           number;   // u16 0–1000
+  totalTrips:           number;   // u32
+  completedTrips:       number;   // u32
+  pathFidelityX100:     number;   // u16
+  avgArrivalDeltaS:     number;   // i16 (JavaScript number, may be negative)
+  hardBrakeEvents:      number;   // u8
+  routeDeviationEvents: number;   // u8
+  sosTriggered:         number;   // u8
+  zkVerified:           boolean;
+  bump:                 number;   // u8 PDA bump seed
+}
+
+/**
+ * Merged view returned by GET /api/reputation/[wallet] and used in the
+ * Driver Trust Passport page. On-chain values are authoritative where present;
+ * Firebase fills gaps when the chain is unavailable.
+ */
+export interface DriverReputationMerged extends DriverReputationFirebase {
+  onChain:          DriverReputationOnChain | null;
+  source:           'chain+firebase' | 'firebase-only';
+  // Derived display fields — computed in lib/solana/trrlProgram.ts
+  completionRate:   number;   // 0–1
+  averageRating:    number;   // 0–5
+  punctualityPct:   number;   // 0–100
+  anomalyIndex:     number;   // 0–100, lower is better
+  cohortPercentile: number;   // 0–100
+}
+
+/**
+ * Escrow state record stored in Firebase and cross-referenced with
+ * the Memo-anchored on-chain record.
+ */
+export interface EscrowRecord {
+  tripId:          string;
+  driverPubkey:    string;
+  passengerPubkey: string;
+  fareLamports:    number;
+  status:          'locked' | 'released' | 'reclaimed' | 'disputed';
+  memoTx:          string;          // Memo program tx signature
+  createdAt:       number;          // unix milliseconds
+  releasedAt:      number | null;
+  gpsVerifiedAt:   number | null;
+}
