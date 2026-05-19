@@ -5,6 +5,11 @@ const PROTECTED_PREFIXES = ['/driver', '/passenger'];
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Public trust passport — no session required
+  if (pathname.startsWith('/verify/driver')) {
+    return NextResponse.next();
+  }
+
   const isProtected = PROTECTED_PREFIXES.some((prefix) =>
     pathname === prefix || pathname.startsWith(`${prefix}/`)
   );
