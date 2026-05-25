@@ -102,8 +102,6 @@ export async function generateDriverProof(input: DriverProofInput): Promise<Driv
                 licenseHash: licenseHash.toString(),
                 birthYear: birthYear.toString(),
                 salt: salt.toString(),
-                // Public input: passed to circuit so age check stays valid across calendar years
-                currentYear,
             },
             '/zk/driverIdentity.wasm',
             '/zk/driverIdentity.zkey'

@@ -1174,7 +1174,7 @@ export default function DriverDashboard() {
               {userData?.role === 'driver' ? (userData.name?.charAt(0).toUpperCase() || 'D') : 'D'}
             </button>
 
-            <DriverProfileDrawer open={showProfileDialog} onOpenChange={setShowProfileDialog} />
+            <DriverProfileDrawer open={showProfileDialog} onOpenChange={setShowProfileDialog} onViewRatings={() => { setShowProfileDialog(false); setActiveTab('rating'); }} />
           </div>
         </div>
       </header>
