@@ -28,7 +28,7 @@ function defaultDriverRep(driverPubkey: string): DriverRepData {
     driverPubkey,
     totalTrips: 0,
     completedTrips: 0,
-    avgRatingX100: 500, // Start with 5.0 rating
+    avgRatingX100: 0, // Start with 0 rating
     onTimeArrivals: 0,
     zkVerified: false,
     zkCommitment: '',
@@ -43,13 +43,13 @@ export function calculateDriverScore(rep: DriverRepData): number {
   const punctualityCount = Number(rep.onTimeArrivals || 0);
   
   const completionFactor = Math.min((completed / total) * 400, 400);
-  const ratingFactor = (Number(rep.avgRatingX100 || 500) / 500) * 300;
+  const ratingFactor = (Number(rep.avgRatingX100 || 0) / 500) * 300;
   const punctuality = Math.min(punctualityCount / Math.max(completed, 1), 1) * 200;
   const zkBonus = rep.zkVerified ? 100 : 0;
   const sosPenalty = Number(rep.sosTriggered || 0) * 20;
 
   const rawScore = Math.round(completionFactor + ratingFactor + punctuality + zkBonus - sosPenalty);
-  return Math.max(0, Math.min(isNaN(rawScore) ? 500 : rawScore, 1000));
+  return Math.max(0, Math.min(isNaN(rawScore) ? 0 : rawScore, 1000));
 }
 
 /**

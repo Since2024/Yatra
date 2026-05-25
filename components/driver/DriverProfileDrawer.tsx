@@ -58,7 +58,7 @@ export function DriverProfileDrawer({ open: controlledOpen, onOpenChange, onView
   const [routeDeviations, setRouteDeviations] = useState<number>(0);
   const [hasQualityStreak, setHasQualityStreak] = useState<boolean>(false);
   const [lastSolanaTx, setLastSolanaTx] = useState<string | null>(null);
-  const [avgRatingX100, setAvgRatingX100] = useState<number>(500);
+  const [avgRatingX100, setAvgRatingX100] = useState<number>(0);
   const [ratingCount, setRatingCount] = useState<number>(0);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
 
@@ -90,7 +90,7 @@ export function DriverProfileDrawer({ open: controlledOpen, onOpenChange, onView
         setRouteDeviations(data.deviations || 0);
         setHasQualityStreak(score >= 950);
         setLastSolanaTx(data.lastSolanaTx ?? null);
-        setAvgRatingX100(data.avgRatingX100 || 500);
+        setAvgRatingX100(data.avgRatingX100 || 0);
         setRatingCount(data.ratingCount || 0);
       }
     });

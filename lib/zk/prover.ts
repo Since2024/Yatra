@@ -102,6 +102,7 @@ export async function generateDriverProof(input: DriverProofInput): Promise<Driv
                 licenseHash: licenseHash.toString(),
                 birthYear: birthYear.toString(),
                 salt: salt.toString(),
+                currentYear: currentYear.toString(),
             },
             '/zk/driverIdentity.wasm',
             '/zk/driverIdentity.zkey'

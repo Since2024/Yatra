@@ -1391,10 +1391,10 @@ export default function DriverDashboard() {
             <div className="rounded-2xl p-5 flex flex-col items-center gap-4" style={{ background: 'white', border: `1px solid ${BORDER}`, boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
               <p className="text-xs uppercase tracking-widest font-black" style={{ color: MUTED }}>TRRL Trust Score</p>
               <TrustScoreWithOptimistic
-                firebaseScore={Number(driverReputation?.score ?? 500)}
+                firebaseScore={Number(driverReputation?.score ?? 0)}
                 chainScore={chainTrustScore}
                 lastSolanaTx={driverReputation?.lastSolanaTx ?? null}
-                tier={trustScoreToTier(Number(driverReputation?.score ?? 500))}
+                tier={trustScoreToTier(Number(driverReputation?.score ?? 0))}
                 size={168}
               />
               <div className="w-full pt-4 border-t border-slate-100 flex justify-around text-center">
@@ -1402,7 +1402,7 @@ export default function DriverDashboard() {
                   <p className="text-[10px] uppercase font-black tracking-tighter" style={{ color: MUTED }}>Star rating</p>
                   <div className="flex items-center justify-center gap-1">
                     <span className="text-lg font-black" style={{ color: INK }}>
-                      {((driverReputation?.avgRatingX100 || 500) / 100).toFixed(1)}
+                      {((driverReputation?.avgRatingX100 || 0) / 100).toFixed(1)}
                     </span>
                     <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
                   </div>

@@ -78,19 +78,19 @@ export async function POST(request: Request) {
                             driverPubkey: driverWallet,
                             totalTrips: 0,
                             completedTrips: 0,
-                            avgRatingX100: 500,
+                            avgRatingX100: 0,
                             onTimeArrivals: 0,
                             zkVerified: false,
                             sosTriggered: 0,
                             verifiedAt: Date.now(),
-                            score: 500
+                            score: 0
                         };
 
                         // 1. Calculate New Average Rating
                         // We treat this rating as an additional data point. 
                         // To avoid complexity, we'll increment a separate 'ratingCount' if it exists, or derive it.
                         const rCount = Number(rep.ratingCount || rep.completedTrips || 0);
-                        const currentAvg = Number(rep.avgRatingX100 || 500);
+                        const currentAvg = Number(rep.avgRatingX100 || 0);
                         const valStars = Number(stars) || 0;
                         
                         const nextAvg = Math.round(((currentAvg * rCount) + (valStars * 100)) / (rCount + 1));
@@ -109,7 +109,7 @@ export async function POST(request: Request) {
                         const sosPenalty = Number(rep.sosTriggered || 0) * 20;
 
                         const rawScore = Math.round(completionRate + ratingScore + punctuality + zkBonus - sosPenalty);
-                        rep.score = Math.max(0, Math.min(isNaN(rawScore) ? 500 : rawScore, 1000));
+                        rep.score = Math.max(0, Math.min(isNaN(rawScore) ? 0 : rawScore, 1000));
                         rep.verifiedAt = Date.now();
 
                         return rep;
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
                         {
                             totalTrips:     Number(finalRep.totalTrips     ?? 0),
                             completedTrips: Number(finalRep.completedTrips ?? 0),
-                            avgRatingX100:  Number(finalRep.avgRatingX100  ?? 500),
+                            avgRatingX100:  Number(finalRep.avgRatingX100  ?? 0),
                             onTimeArrivals: Number(finalRep.onTimeArrivals ?? 0),
                             zkVerified:     Boolean(finalRep.zkVerified),
                             sosTriggered:   Number(finalRep.sosTriggered   ?? 0),
