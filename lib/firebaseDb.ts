@@ -418,6 +418,90 @@ export const subscribeToBookings = (
     return unsubscribe;
 };
 
+export const subscribeToPassengerHistory = (
+    passengerId: string,
+    callback: (history: Booking[]) => void
+): () => void => {
+    const db = getDb();
+    const bookingsRef = query(ref(db, 'bookings'), orderByChild('passengerId'), equalTo(passengerId));
+    const tripsRef = query(ref(db, 'trips'), orderByChild('passengerId'), equalTo(passengerId));
+
+    let bookingsList: any[] = [];
+    let tripsList: any[] = [];
+
+    const emit = () => {
+        const bookingIds = new Set(bookingsList.map(b => b.id));
+        
+        const filteredTrips = tripsList.filter(t => {
+            if (t.bookingId && bookingIds.has(t.bookingId)) {
+                return false;
+            }
+            return true;
+        }).map(t => ({
+            ...t,
+            timestamp: t.createdAt ? new Date(t.createdAt) : new Date(t.timestamp || Date.now()),
+            pickupLocation: t.pickupLocation ? {
+                ...t.pickupLocation,
+                timestamp: t.pickupLocation.timestamp ? new Date(t.pickupLocation.timestamp) : (t.createdAt ? new Date(t.createdAt) : new Date()),
+            } : undefined,
+            dropoffLocation: t.dropoffLocation ? {
+                ...t.dropoffLocation,
+                timestamp: t.dropoffLocation.timestamp ? new Date(t.dropoffLocation.timestamp) : (t.updatedAt ? new Date(t.updatedAt) : new Date()),
+            } : undefined,
+        }));
+
+        const mergedBookings = bookingsList.map(b => {
+            const linkedTrip = tripsList.find(t => t.bookingId === b.id || t.id === b.id);
+            if (linkedTrip) {
+                return {
+                    ...b,
+                    ...linkedTrip,
+                    id: b.id, // keep booking ID
+                    timestamp: b.timestamp || linkedTrip.createdAt,
+                };
+            }
+            return b;
+        });
+
+        const combined = [...mergedBookings, ...filteredTrips];
+
+        // Sort by date desc (using timestamp/createdAt)
+        combined.sort((a, b) => {
+            const timeA = new Date(a.timestamp || a.createdAt).getTime();
+            const timeB = new Date(b.timestamp || b.createdAt).getTime();
+            return timeB - timeA;
+        });
+
+        callback(combined as Booking[]);
+    };
+
+    const unsubBookings = onValue(bookingsRef, (snapshot) => {
+        try {
+            const data = snapshot.val();
+            bookingsList = data ? Object.values(data) : [];
+            emit();
+        } catch (error) {
+            console.error('[FirebaseDb] subscribeToPassengerHistory bookings error:', error);
+        }
+    });
+
+    const unsubTrips = onValue(tripsRef, (snapshot) => {
+        try {
+            const data = snapshot.val();
+            tripsList = data ? Object.values(data) : [];
+            emit();
+        } catch (error) {
+            console.error('[FirebaseDb] subscribeToPassengerHistory trips error:', error);
+        }
+    });
+
+    return () => {
+        unsubBookings();
+        unsubTrips();
+    };
+};
+
+
 // --- User Profile Functions ---
 
 export const createUserProfile = async (userId: string, userData: any) => {
@@ -907,35 +991,63 @@ export function subscribeToDriverRatings(
 ): () => void {
     const db = getDb();
     const bookingsRef = query(ref(db, 'bookings'), orderByChild('driverId'), equalTo(driverId));
-    
-    // Listen to bookings
-    const unsubscribe = onValue(bookingsRef, (snap) => {
-        const data = snap.val();
-        if (!data) {
-            callback([]);
-            return;
-        }
+    const tripsRef = query(ref(db, 'trips'), orderByChild('driverId'), equalTo(driverId));
 
-        const ratings: any[] = [];
-        Object.values(data).forEach((booking: any) => {
-            if (booking.passengerRating) {
-                ratings.push({
-                    id: booking.id,
-                    stars: booking.passengerRating.stars,
-                    comment: booking.passengerRating.comment,
-                    createdAt: booking.passengerRating.createdAt || booking.timestamp,
-                    passengerName: booking.passengerName || 'Passenger',
-                    fare: booking.fare,
-                    status: booking.status,
-                });
-            }
-        });
+    let bookingsRatings: any[] = [];
+    let tripsRatings: any[] = [];
 
+    const emit = () => {
+        const combined = [...bookingsRatings, ...tripsRatings];
         // Sort by date desc
-        ratings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        callback(ratings);
+        combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        callback(combined);
+    };
+
+    const unsubBookings = onValue(bookingsRef, (snap) => {
+        const data = snap.val();
+        bookingsRatings = [];
+        if (data) {
+            Object.values(data).forEach((booking: any) => {
+                if (booking.passengerRating) {
+                    bookingsRatings.push({
+                        id: booking.id,
+                        stars: booking.passengerRating.stars,
+                        comment: booking.passengerRating.comment,
+                        createdAt: booking.passengerRating.createdAt || booking.timestamp,
+                        passengerName: booking.passengerName || 'Passenger',
+                        fare: booking.fare,
+                        status: booking.status,
+                    });
+                }
+            });
+        }
+        emit();
     });
 
-    return unsubscribe;
+    const unsubTrips = onValue(tripsRef, (snap) => {
+        const data = snap.val();
+        tripsRatings = [];
+        if (data) {
+            Object.values(data).forEach((trip: any) => {
+                if (trip.passengerRating) {
+                    tripsRatings.push({
+                        id: trip.id,
+                        stars: trip.passengerRating.stars,
+                        comment: trip.passengerRating.comment,
+                        createdAt: trip.passengerRating.createdAt || trip.createdAt,
+                        passengerName: trip.passengerName || 'Passenger',
+                        fare: trip.fare,
+                        status: trip.status,
+                    });
+                }
+            });
+        }
+        emit();
+    });
+
+    return () => {
+        unsubBookings();
+        unsubTrips();
+    };
 }
 

@@ -162,6 +162,7 @@ export interface Booking {
   // Booking timeout fields
   reservationExpiresAt?: Date;     // 10-minute timeout
   isExpired: boolean;
+  createdAt?: string | Date;
 }
 
 export interface LocationWithTimestamp {

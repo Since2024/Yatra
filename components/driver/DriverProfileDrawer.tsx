@@ -40,9 +40,10 @@ function truncateAddress(addr: string): string {
 interface DriverProfileDrawerProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onViewRatings?: () => void;
 }
 
-export function DriverProfileDrawer({ open: controlledOpen, onOpenChange }: DriverProfileDrawerProps = {}) {
+export function DriverProfileDrawer({ open: controlledOpen, onOpenChange, onViewRatings }: DriverProfileDrawerProps = {}) {
   const router = useRouter();
   const { currentUser, userData, signOut } = useAuth();
   const { toast } = useToast();
@@ -57,6 +58,8 @@ export function DriverProfileDrawer({ open: controlledOpen, onOpenChange }: Driv
   const [routeDeviations, setRouteDeviations] = useState<number>(0);
   const [hasQualityStreak, setHasQualityStreak] = useState<boolean>(false);
   const [lastSolanaTx, setLastSolanaTx] = useState<string | null>(null);
+  const [avgRatingX100, setAvgRatingX100] = useState<number>(0);
+  const [ratingCount, setRatingCount] = useState<number>(0);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
 
   const isControlled = controlledOpen !== undefined && onOpenChange !== undefined;
@@ -87,6 +90,8 @@ export function DriverProfileDrawer({ open: controlledOpen, onOpenChange }: Driv
         setRouteDeviations(data.deviations || 0);
         setHasQualityStreak(score >= 950);
         setLastSolanaTx(data.lastSolanaTx ?? null);
+        setAvgRatingX100(data.avgRatingX100 || 0);
+        setRatingCount(data.ratingCount || 0);
       }
     });
 
@@ -309,6 +314,52 @@ export function DriverProfileDrawer({ open: controlledOpen, onOpenChange }: Driv
                 </div>
               </motion.div>
             )}
+          </div>
+
+          {/* Star Rating & Reviews Summary */}
+          <div className="p-6 border-b border-border">
+            <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-4 flex items-center gap-2">
+              <Star className="w-4 h-4 text-yellow-500" />
+              Passenger Ratings
+            </h3>
+            <div className="flex items-center gap-6">
+              <div className="flex flex-col items-center">
+                <span className="text-4xl font-black text-foreground tracking-tight">
+                  {(avgRatingX100 / 100).toFixed(1)}
+                </span>
+                <div className="flex gap-0.5 mt-1">
+                  {[...Array(5)].map((_, idx) => (
+                    <Star
+                      key={idx}
+                      className={`w-3.5 h-3.5 ${
+                        idx < Math.round(avgRatingX100 / 100)
+                          ? 'fill-yellow-400 text-yellow-400'
+                          : 'text-border'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-foreground">
+                  {ratingCount} {ratingCount === 1 ? 'review' : 'reviews'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Based on passenger feedback
+                </p>
+                {onViewRatings && (
+                  <button
+                    onClick={() => {
+                      setOpen(false);
+                      onViewRatings();
+                    }}
+                    className="mt-2 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
+                  >
+                    View all feedback →
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Recent Trips Slider */}

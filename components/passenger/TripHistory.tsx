@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/contexts/AuthContext';
-import { subscribeToBookings } from '@/lib/firebaseDb';
+import { subscribeToPassengerHistory } from '@/lib/firebaseDb';
 import { Booking } from '@/lib/types';
 import TripTicketCard from './TripTicketCard';
 import { History, Ticket } from 'lucide-react';
@@ -14,12 +14,8 @@ export default function TripHistory({ onReclaim }: { onReclaim?: (id: string) =>
     useEffect(() => {
         if (!currentUser) return;
 
-        const unsubscribe = subscribeToBookings(currentUser.uid, 'passenger', (data) => {
-            // Sort by most recent first
-            const sorted = [...data].sort(
-                (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-            );
-            setBookings(sorted);
+        const unsubscribe = subscribeToPassengerHistory(currentUser.uid, (data) => {
+            setBookings(data);
         });
 
         return () => unsubscribe();

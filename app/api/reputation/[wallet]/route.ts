@@ -45,22 +45,45 @@ export async function GET(
     try {
         // 1. Try on-chain PDA first (authoritative source)
         const connection = getConnection();
-        const [onChain, firebaseSnap] = await Promise.allSettled([
-            readDriverRepOnChain(connection, wallet),
-            getAdminDb()
+        const onChainPromise = readDriverRepOnChain(connection, wallet).catch(() => null);
+
+        // Fetch all users to find the matching solanaWallet (bypasses missing database index)
+        const userSnap = await getAdminDb().ref('users').get();
+        const usersVal = userSnap.val() ?? {};
+
+        let driverUid: string | null = null;
+        let firebaseUser: any = null;
+        for (const [uid, u] of Object.entries(usersVal)) {
+            if (u && typeof u === 'object' && (u as any).solanaWallet === wallet) {
+                driverUid = uid;
+                firebaseUser = u;
+                break;
+            }
+        }
+
+        // Fetch reputation directly using the driverUid if found (bypasses missing driverPubkey database index)
+        let fbRep: any = null;
+        if (driverUid) {
+            const repSnap = await getAdminDb().ref(`reputation/drivers/${driverUid}`).get();
+            if (repSnap.exists()) {
+                fbRep = repSnap.val();
+            }
+        }
+
+        // Fallback: if not found by direct UID, try querying by driverPubkey
+        if (!fbRep) {
+            const repSnap = await getAdminDb()
                 .ref('reputation/drivers')
                 .orderByChild('driverPubkey')
                 .equalTo(wallet)
                 .limitToFirst(1)
-                .once('value'),
-        ]);
+                .get();
+            if (repSnap.exists()) {
+                fbRep = Object.values(repSnap.val() ?? {})[0];
+            }
+        }
 
-        const chainData = onChain.status === 'fulfilled' ? onChain.value : null;
-
-        // Firebase fallback — also used for metadata fields not stored on-chain
-        const fbSnap = firebaseSnap.status === 'fulfilled' ? firebaseSnap.value : null;
-        const fbRecords = fbSnap?.exists() ? (fbSnap.val() as Record<string, any>) : null;
-        const fbRep = fbRecords ? Object.values(fbRecords)[0] : null;
+        const chainData = await onChainPromise;
 
         if (!chainData && !fbRep) {
             return NextResponse.json({ error: 'No reputation record found for this wallet' }, { status: 404 });
@@ -79,13 +102,13 @@ export async function GET(
             source: chainData ? 'YATRA_TRRL_V1_ONCHAIN' : 'YATRA_TRRL_V1_FIREBASE',
 
             // Score (0–1000) — on-chain is authoritative
-            score: chainData?.score ?? Number(fbRep?.score ?? 500),
+            score: chainData?.score ?? Number(fbRep?.score ?? 0),
 
             // Trip stats — on-chain is authoritative
             totalTrips: chainData?.totalTrips ?? Number(fbRep?.totalTrips ?? 0),
             completedTrips: chainData?.completedTrips ?? Number(fbRep?.completedTrips ?? 0),
             avgRating: chainData?.avgRating
-                ?? parseFloat((Number(fbRep?.avgRatingX100 ?? 500) / 100).toFixed(2)),
+                ?? parseFloat((Number(fbRep?.avgRatingX100 ?? 0) / 100).toFixed(2)),
             onTimePct: chainData?.onTimePct ?? (() => {
                 const completed = Number(fbRep?.completedTrips ?? 0);
                 const onTime = Number(fbRep?.onTimeArrivals ?? 0);

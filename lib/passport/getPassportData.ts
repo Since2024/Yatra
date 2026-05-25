@@ -36,26 +36,74 @@ export async function getPassportData(
   const adminDb = getAdminDb();
   const connection = getConnection();
 
-  const [onChain, userSnap, repSnap] = await Promise.all([
-    readDriverRepOnChain(connection, walletAddress).catch(() => null),
-    adminDb
-      .ref('users')
-      .orderByChild('solanaWallet')
-      .equalTo(walletAddress)
-      .limitToFirst(1)
-      .get(),
-    adminDb
+  const onChainPromise = readDriverRepOnChain(connection, walletAddress).catch(() => null);
+
+  // Fetch all users to find the matching solanaWallet in memory (bypasses missing database index)
+  const userSnap = await adminDb.ref('users').get();
+  const usersVal = userSnap.val() ?? {};
+
+  let driverUid: string | null = null;
+  let firebaseUser: any = null;
+  for (const [uid, u] of Object.entries(usersVal)) {
+    if (u && typeof u === 'object' && (u as any).solanaWallet === walletAddress) {
+      driverUid = uid;
+      firebaseUser = u;
+      break;
+    }
+  }
+
+  // Fetch reputation directly using the driverUid if found (bypasses missing driverPubkey database index)
+  let firebaseRep: any = null;
+  if (driverUid) {
+    const repSnap = await adminDb.ref(`reputation/drivers/${driverUid}`).get();
+    if (repSnap.exists()) {
+      firebaseRep = repSnap.val();
+    }
+  }
+
+  // Fallback: if not found by direct UID, try querying by driverPubkey
+  if (!firebaseRep) {
+    const repSnap = await adminDb
       .ref('reputation/drivers')
       .orderByChild('driverPubkey')
       .equalTo(walletAddress)
       .limitToFirst(1)
-      .get(),
-  ]);
+      .get();
+    if (repSnap.exists()) {
+      firebaseRep = Object.values(repSnap.val() ?? {})[0];
+    }
+  }
 
-  const firebaseUser = Object.values(userSnap.val() ?? {})[0] as { name?: string } | undefined;
-  const firebaseRep  = Object.values(repSnap.val()  ?? {})[0] as Record<string, unknown> | undefined;
+  const onChain = await onChainPromise;
 
-  if (!onChain && !firebaseRep) return null;
+  console.log(`[getPassportData] wallet=${walletAddress}`);
+  console.log(`[getPassportData] driverUid=${driverUid}`);
+  console.log(`[getPassportData] onChain=`, onChain);
+  console.log(`[getPassportData] firebaseUser=`, firebaseUser);
+  console.log(`[getPassportData] firebaseRep=`, firebaseRep);
+
+  if (!onChain && !firebaseRep) {
+    // No reputation yet — if the user exists in Firebase, return a fresh passport
+    if (!firebaseUser) return null;
+    const pdaPubkey = getDriverRepPDA(walletAddress);
+    return {
+      walletAddress,
+      displayName:     firebaseUser?.name ?? 'Yatra Driver',
+      trustScore:      0,
+      tier:            'new' as const,
+      zkVerified:      false,
+      completedTrips:  0,
+      totalTrips:      0,
+      completionRate:  0,
+      pathFidelity:    100,
+      onTimeRate:      1,
+      avgArrivalDeltaS: 0,
+      safetyIndex:     100,
+      pdaAddress:      pdaPubkey.toBase58(),
+      lastSolanaTx:    null,
+      source:          'firebase-only' as const,
+    };
+  }
 
   const pdaPubkey = getDriverRepPDA(walletAddress);
 

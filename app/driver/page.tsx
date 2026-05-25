@@ -885,23 +885,49 @@ export default function DriverDashboard() {
       const { getFirebaseApp } = await import('@/lib/firebase');
       const db = getDatabase(getFirebaseApp());
 
-      // The `passengerId` argument here is the booking ID coming from PassengerList.
+      // The `passengerId` argument here is the booking ID coming from PassengerList or the trip ID.
       const bookingId = passengerId;
-      const bookingSnap = await get(ref(db, `bookings/${bookingId}`));
-      if (!bookingSnap.exists()) {
-        // Non-fatal: trip completed correctly, NFT minting is optional
-        console.warn('[Driver] Booking record not found for NFT minting:', bookingId);
-        toast({
-          title: 'Trip completed',
-          description: 'Receipt minting skipped (no linked booking).',
-        });
-        return;
-      }
+      let bookingData: DriverBookingLookup = {};
+      let truePassengerId: string | null = null;
+      let actualFare = 75;
+      let bookingRoute = selectedBus.route || 'Local Trip';
 
-      const bookingData = bookingSnap.val() as DriverBookingLookup;
-      const truePassengerId = bookingData.passengerId ?? null;
-      const actualFare = bookingData.fare || 75;
-      const bookingRoute = bookingData.route || selectedBus.route || 'Local Trip';
+      const bookingSnap = await get(ref(db, `bookings/${bookingId}`));
+      if (bookingSnap.exists()) {
+        const data = bookingSnap.val() as DriverBookingLookup;
+        bookingData = data;
+        truePassengerId = data.passengerId ?? null;
+        actualFare = data.fare || 75;
+        bookingRoute = data.route || selectedBus.route || 'Local Trip';
+      } else {
+        // Fallback to trips (for on-demand hailed trips)
+        const tripSnap = await get(ref(db, `trips/${bookingId}`));
+        if (tripSnap.exists()) {
+          const data = tripSnap.val();
+          bookingData = {
+            id: data.id,
+            passengerId: data.passengerId,
+            passengerName: data.passengerName,
+            fare: data.fare,
+            route: data.route
+          };
+          truePassengerId = data.passengerId ?? null;
+          actualFare = data.fare || 75;
+          bookingRoute = data.route || selectedBus.route || 'Local Trip';
+        } else {
+          // Non-fatal: trip completed correctly, NFT minting is optional
+          console.warn('[Driver] Booking or Trip record not found:', bookingId);
+          toast({
+            title: 'Trip completed',
+            description: 'Receipt minting skipped (record not found).',
+          });
+          // Still show the rating modal!
+          setRatingTripId(passengerId);
+          setRatingPassengerName('Passenger');
+          setShowRatingModal(true);
+          return;
+        }
+      }
 
       if (!truePassengerId) {
         toast({
@@ -1174,7 +1200,7 @@ export default function DriverDashboard() {
               {userData?.role === 'driver' ? (userData.name?.charAt(0).toUpperCase() || 'D') : 'D'}
             </button>
 
-            <DriverProfileDrawer open={showProfileDialog} onOpenChange={setShowProfileDialog} />
+            <DriverProfileDrawer open={showProfileDialog} onOpenChange={setShowProfileDialog} onViewRatings={() => { setShowProfileDialog(false); setActiveTab('rating'); }} />
           </div>
         </div>
       </header>
@@ -1365,10 +1391,10 @@ export default function DriverDashboard() {
             <div className="rounded-2xl p-5 flex flex-col items-center gap-4" style={{ background: 'white', border: `1px solid ${BORDER}`, boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
               <p className="text-xs uppercase tracking-widest font-black" style={{ color: MUTED }}>TRRL Trust Score</p>
               <TrustScoreWithOptimistic
-                firebaseScore={Number(driverReputation?.score ?? 500)}
+                firebaseScore={Number(driverReputation?.score ?? 0)}
                 chainScore={chainTrustScore}
                 lastSolanaTx={driverReputation?.lastSolanaTx ?? null}
-                tier={trustScoreToTier(Number(driverReputation?.score ?? 500))}
+                tier={trustScoreToTier(Number(driverReputation?.score ?? 0))}
                 size={168}
               />
               <div className="w-full pt-4 border-t border-slate-100 flex justify-around text-center">
@@ -1376,7 +1402,7 @@ export default function DriverDashboard() {
                   <p className="text-[10px] uppercase font-black tracking-tighter" style={{ color: MUTED }}>Star rating</p>
                   <div className="flex items-center justify-center gap-1">
                     <span className="text-lg font-black" style={{ color: INK }}>
-                      {((driverReputation?.avgRatingX100 || 500) / 100).toFixed(1)}
+                      {((driverReputation?.avgRatingX100 || 0) / 100).toFixed(1)}
                     </span>
                     <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
                   </div>

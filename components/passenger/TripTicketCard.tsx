@@ -14,8 +14,54 @@ function getVehicleEmoji(vehicleType?: string): string {
     }
 }
 
-function formatTime(isoString: string) {
-    return new Date(isoString).toLocaleDateString('en-US', {
+function getFormattedDate(timestamp: any): string {
+    if (!timestamp) return 'Unknown date';
+    if (timestamp instanceof Date && !isNaN(timestamp.getTime())) {
+        return timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    if (typeof timestamp === 'string') {
+        const d = new Date(timestamp);
+        if (!isNaN(d.getTime())) {
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+    }
+    if (typeof timestamp === 'number') {
+        const d = new Date(timestamp > 99999999999 ? timestamp : timestamp * 1000);
+        if (!isNaN(d.getTime())) {
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+    }
+    if (typeof timestamp === 'object' && timestamp !== null) {
+        if ('seconds' in timestamp && typeof timestamp.seconds === 'number') {
+            const d = new Date(timestamp.seconds * 1000);
+            if (!isNaN(d.getTime())) {
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            }
+        }
+        if ('toDate' in timestamp && typeof timestamp.toDate === 'function') {
+            const d = timestamp.toDate();
+            if (d instanceof Date && !isNaN(d.getTime())) {
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            }
+        }
+    }
+    return 'Unknown date';
+}
+
+function formatTime(isoString: any) {
+    if (!isoString) return 'Unknown date';
+    let d: Date;
+    if (isoString instanceof Date) {
+        d = isoString;
+    } else if (typeof isoString === 'number') {
+        d = new Date(isoString > 99999999999 ? isoString : isoString * 1000);
+    } else if (typeof isoString === 'object' && isoString !== null && 'seconds' in isoString) {
+        d = new Date(isoString.seconds * 1000);
+    } else {
+        d = new Date(String(isoString));
+    }
+    if (isNaN(d.getTime())) return 'Unknown time';
+    return d.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
@@ -31,7 +77,8 @@ export default function TripTicketCard({
     booking: Booking; 
     onReclaim?: (id: string) => void;
 }) {
-    const { receipt, route, fare, vehicleType, timestamp } = booking;
+    const { receipt, route, fare, vehicleType, timestamp, createdAt } = booking;
+    const resolvedTimestamp = timestamp || createdAt;
     const emoji = getVehicleEmoji(vehicleType);
     const hasReceipt = !!receipt;
 
@@ -58,10 +105,7 @@ export default function TripTicketCard({
                         <div>
                             <p className="font-black text-foreground text-sm">{route || 'Trip'}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                                {typeof timestamp === 'string' || timestamp instanceof Date
-                                    ? new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                                    : 'Unknown date'
-                                }
+                                {getFormattedDate(resolvedTimestamp)}
                             </p>
                         </div>
                     </div>
@@ -117,7 +161,9 @@ export default function TripTicketCard({
                             <span>
                                 {['cancelled', 'rejected', 'expired'].includes(booking.status) 
                                     ? 'Trip failed' 
-                                    : 'Receipt will appear after dropoff'}
+                                    : booking.status === 'completed'
+                                        ? 'Completed (Receipt generating...)'
+                                        : 'Receipt will appear after dropoff'}
                             </span>
                         </div>
                         

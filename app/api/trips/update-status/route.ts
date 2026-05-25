@@ -111,6 +111,32 @@ export async function POST(request: Request) {
 
         // 5. Aggregate Statistics (Only if status actually changed)
         if (statusChanged) {
+            // Pre-fetch the linked booking's fare for accurate earnings
+            // The trip request record often has fare=0; the booking has the real amount
+            let resolvedFare = Number(finalTripData.fare || 0);
+            if (status === 'completed' && linkedBookingId) {
+                try {
+                    const bookingSnap = await adminDb.ref(`bookings/${linkedBookingId}`).get();
+                    if (bookingSnap.exists()) {
+                        const bookingFare = Number(bookingSnap.val()?.fare || 0);
+                        if (bookingFare > 0) {
+                            resolvedFare = bookingFare;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[update-status] Could not fetch linked booking fare, using trip fare:', e);
+                }
+            }
+
+            if (status === 'completed' && resolvedFare <= 0) {
+                resolvedFare = 75; // Standard fallback fare
+                try {
+                    await tripRef.update({ fare: resolvedFare });
+                } catch (err: any) {
+                    console.error('[update-status] Failed to write fallback fare to trip record:', err.message);
+                }
+            }
+
             const statsRef = adminDb.ref(`users/${driverId}/stats`);
             await statsRef.transaction((currentStats) => {
                 const stats = currentStats || {
@@ -125,8 +151,7 @@ export async function POST(request: Request) {
                     stats.totalRides = Number(stats.totalRides || 0) + 1;
                 } else if (status === 'completed' && currentStatus !== 'completed') {
                     stats.completedTrips = Number(stats.completedTrips || 0) + 1;
-                    const fare = Number(finalTripData.fare || 0);
-                    stats.totalEarnings = Number(stats.totalEarnings || 0) + fare;
+                    stats.totalEarnings = Number(stats.totalEarnings || 0) + resolvedFare;
                 } else if (status === 'cancelled' && currentStatus !== 'cancelled') {
                     stats.cancelledTrips = Number(stats.cancelledTrips || 0) + 1;
                 }
@@ -143,7 +168,7 @@ export async function POST(request: Request) {
             if (status === 'completed' || status === 'accepted') {
                 const repRef = adminDb.ref(`reputation/drivers/${driverId}`);
                 await repRef.transaction((currentRep) => {
-                    const rep = currentRep || { totalTrips: 0, completedTrips: 0, score: 500 };
+                    const rep = currentRep || { totalTrips: 0, completedTrips: 0, score: 0 };
 
                     if (status === 'accepted') {
                         rep.totalTrips = Number(rep.totalTrips || 0) + 1;
@@ -156,13 +181,13 @@ export async function POST(request: Request) {
                     const total = Math.max(Number(rep.totalTrips || 0), 1);
                     const completed = Number(rep.completedTrips || 0);
                     const completionFactor = Math.min((completed / total) * 400, 400);
-                    const ratingFactor = (Number(rep.avgRatingX100 || 500) / 500) * 300;
+                    const ratingFactor = (Number(rep.avgRatingX100 || 0) / 500) * 300;
                     const punctuality = Math.min(Number(rep.onTimeArrivals || 0) / Math.max(completed, 1), 1) * 200;
                     const zkBonus = rep.zkVerified ? 100 : 0;
                     const sosPenalty = Number(rep.sosTriggered || 0) * 20;
 
                     const rawScore = Math.round(completionFactor + ratingFactor + punctuality + zkBonus - sosPenalty);
-                    rep.score = Math.max(0, Math.min(isNaN(rawScore) ? 500 : rawScore, 1000));
+                    rep.score = Math.max(0, Math.min(isNaN(rawScore) ? 0 : rawScore, 1000));
 
                     return rep;
                 });
