@@ -83,8 +83,8 @@ export async function generateDriverProof(input: DriverProofInput): Promise<Driv
     const { licenseNumber, birthYear } = input;
 
     // ── 1. Validation ──────────────────────────────────────────────────────
-    // Aligned with 2026 current year and VerificationPanel requirements
-    if (2026 - birthYear < 21) {
+    const currentYear = new Date().getFullYear();
+    if (currentYear - birthYear < 21) {
         throw new Error("Age requirement not met: You must be at least 21 years old.");
     }
 
@@ -94,8 +94,6 @@ export async function generateDriverProof(input: DriverProofInput): Promise<Driv
     const saltBytes = new Uint8Array(31);
     crypto.getRandomValues(saltBytes);
     const salt = saltBytes.reduce((acc, byte) => (acc << BigInt(8)) | BigInt(byte), BigInt(0));
-    const localCommitment = computeCommitment(licenseHash, birthYear, salt);
-
     // ── 3. Run Groth16 Prover ──────────────────────────────────────────────
     // The browser fetches these from the /public/zk/ directory
     try {
@@ -105,21 +103,21 @@ export async function generateDriverProof(input: DriverProofInput): Promise<Driv
                 birthYear: birthYear.toString(),
                 salt: salt.toString(),
                 // Public input: passed to circuit so age check stays valid across calendar years
-                currentYear: new Date().getFullYear(),
+                currentYear,
             },
             '/zk/driverIdentity.wasm',
             '/zk/driverIdentity.zkey'
         );
 
         // ── 4. Serialization ───────────────────────────────────────────────────
-        // Using the internal helper to ensure all BigInts are stringified correctly
+        // publicSignals: [commitment, ageValid, currentYear]
         const editedProof = stringifyBigInts(proof);
 
         return {
             proof: editedProof,
             publicSignals,
-            commitment: localCommitment.toString(16),
-            ageValid: publicSignals[1] === '1' // Index 1 is the 'ageValid' signal in the circuit
+            commitment: String(publicSignals[0] ?? ''),
+            ageValid: publicSignals[1] === '1',
         };
     } catch (err: any) {
         throw new Error(`ZK Proof generation failed: ${err.message || 'Check if driverIdentity.wasm/zkey exist in /public/zk/'}`);

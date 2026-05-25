@@ -58,3 +58,11 @@ export const TIER_COLORS: Record<TrustTier, string> = {
   bronze:   tokens.color.tierBronze,
   new:      tokens.color.tierNew,
 };
+
+export function trustScoreToTier(score: number): TrustTier {
+  if (score >= 900) return 'platinum';
+  if (score >= 750) return 'gold';
+  if (score >= 550) return 'silver';
+  if (score >= 300) return 'bronze';
+  return 'new';
+}

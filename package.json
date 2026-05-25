@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "zk:build": "circom circuits/driverIdentity.circom --r1cs --wasm --sym -l . -o circuits/build && cd circuits/build && snarkjs groth16 setup driverIdentity.r1cs pot12_final.ptau driverIdentity_0000.zkey && snarkjs zkey contribute driverIdentity_0000.zkey driverIdentity_final.zkey --name=yatra -v -e=random && snarkjs zkey export verificationkey driverIdentity_final.zkey driverIdentity_vkey.json && cp driverIdentity_js/driverIdentity.wasm ../../public/zk/driverIdentity.wasm && cp driverIdentity_final.zkey ../../public/zk/driverIdentity.zkey && cp driverIdentity_vkey.json ../../lib/zk/verification_key.json"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

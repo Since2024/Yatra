@@ -29,6 +29,8 @@ import { Driver, Booking } from '@/lib/types';
 import { getDatabase, ref, onValue } from 'firebase/database';
 import { getFirebaseApp } from '@/lib/firebase';
 import { subscribeToBookings, subscribeToTripRequests } from '@/lib/firebaseDb';
+import { TrustScoreRing } from '@/components/driver/TrustScoreRing';
+import { trustScoreToTier } from '@/lib/design/tokens';
 
 function truncateAddress(addr: string): string {
   if (!addr || addr.length < 10) return '0x00...000';
@@ -54,6 +56,7 @@ export function DriverProfileDrawer({ open: controlledOpen, onOpenChange }: Driv
   const [hardBrakes, setHardBrakes] = useState<number>(0);
   const [routeDeviations, setRouteDeviations] = useState<number>(0);
   const [hasQualityStreak, setHasQualityStreak] = useState<boolean>(false);
+  const [lastSolanaTx, setLastSolanaTx] = useState<string | null>(null);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
 
   const isControlled = controlledOpen !== undefined && onOpenChange !== undefined;
@@ -83,6 +86,7 @@ export function DriverProfileDrawer({ open: controlledOpen, onOpenChange }: Driv
         setHardBrakes(data.hardBrakes || 0);
         setRouteDeviations(data.deviations || 0);
         setHasQualityStreak(score >= 950);
+        setLastSolanaTx(data.lastSolanaTx ?? null);
       }
     });
 
@@ -239,31 +243,20 @@ export function DriverProfileDrawer({ open: controlledOpen, onOpenChange }: Driv
               Execution-Derived Reputation
             </h3>
             
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex flex-col">
+            <div className="flex items-center justify-between mb-8 gap-4">
+              <div className="flex flex-col min-w-0">
                 <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Trust Score</span>
                 <div className="flex items-end gap-1">
                   <span className="text-5xl font-black tracking-tighter text-foreground">{reputationScore}</span>
                   <span className="text-xl font-bold text-muted-foreground/70 mb-1.5">/1000</span>
                 </div>
               </div>
-              <div className="relative w-24 h-24 flex items-center justify-center">
-                <svg className="w-full h-full transform -rotate-90 drop-shadow-md">
-                  <circle cx="48" cy="48" r="42" fill="transparent" className="stroke-border" strokeWidth="8" />
-                  <motion.circle 
-                    cx="48" cy="48" r="42" fill="transparent" 
-                    stroke={reputationScore >= 900 ? "#10b981" : reputationScore >= 600 ? "#f59e0b" : "#ef4444"} 
-                    strokeLinecap="round"
-                    strokeWidth="8" 
-                    strokeDasharray={264} 
-                    strokeDashoffset={264 - (264 * reputationScore) / 1000}
-                    initial={{ strokeDashoffset: 264 }}
-                    animate={{ strokeDashoffset: 264 - (264 * reputationScore) / 1000 }}
-                    transition={{ duration: 1.5, ease: "easeOut", delay: 0.2 }}
-                  />
-                </svg>
-                <Star className="absolute w-7 h-7 text-muted-foreground" />
-              </div>
+              <TrustScoreRing
+                score={reputationScore}
+                tier={trustScoreToTier(reputationScore)}
+                isAnimating={!!lastSolanaTx}
+                size={96}
+              />
             </div>
 
             <div className="space-y-5">

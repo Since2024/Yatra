@@ -40,6 +40,8 @@ import { Star } from 'lucide-react';
 import { haversineDistance } from '@/lib/utils/geofencing';
 import TripRatingModal from '@/components/shared/TripRatingModal';
 import TripRequestPanel from '@/components/driver/TripRequestPanel';
+import { TrustScoreWithOptimistic } from '@/components/driver/TrustScoreWithOptimistic';
+import { trustScoreToTier } from '@/lib/design/tokens';
 import { TripStatus } from '@/lib/types';
 import { addOfflinePassenger, removeOfflinePassenger } from '@/lib/seatManagement';
 import { useToast } from '@/components/ui/use-toast';
@@ -98,6 +100,7 @@ export default function DriverDashboard() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'trips' | 'earnings' | 'rating' | 'profile'>('dashboard');
   const [driverRatings, setDriverRatings] = useState<any[]>([]);
   const [driverReputation, setDriverReputation] = useState<any>(null);
+  const [chainTrustScore, setChainTrustScore] = useState<number | null>(null);
 
   const [ratingTripId, setRatingTripId] = useState<string | null>(null);
   const [ratingPassengerName, setRatingPassengerName] = useState<string>('');
@@ -149,6 +152,29 @@ export default function DriverDashboard() {
       unsubRatings();
     };
   }, [currentUser?.uid]);
+
+  useEffect(() => {
+    if (!driverWalletAddress) {
+      setChainTrustScore(null);
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`/api/reputation/${encodeURIComponent(driverWalletAddress)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.score != null) {
+          setChainTrustScore(Number(data.score));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setChainTrustScore(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [driverWalletAddress, driverReputation?.lastSolanaTx]);
 
   const handleAccidentConfirm = async () => {
     resetDetection();
@@ -1336,29 +1362,45 @@ export default function DriverDashboard() {
 
         {activeTab === 'rating' && (
           <section className="space-y-4">
-            {/* Aggregate Score Card */}
-            <div className="rounded-2xl p-5 text-center space-y-2" style={{ background: 'white', border: `1px solid ${BORDER}`, boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
-              <p className="text-xs uppercase tracking-widest font-black text-muted-foreground">Performance Score</p>
-              <div className="flex items-center justify-center gap-1 text-4xl font-black" style={{ color: INK }}>
-                <span>{( (driverReputation?.avgRatingX100 || 500) / 100).toFixed(1)}</span>
-                <Star className="w-8 h-8 fill-yellow-400 text-yellow-400" />
+            <div className="rounded-2xl p-5 flex flex-col items-center gap-4" style={{ background: 'white', border: `1px solid ${BORDER}`, boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
+              <p className="text-xs uppercase tracking-widest font-black" style={{ color: MUTED }}>TRRL Trust Score</p>
+              <TrustScoreWithOptimistic
+                firebaseScore={Number(driverReputation?.score ?? 500)}
+                chainScore={chainTrustScore}
+                lastSolanaTx={driverReputation?.lastSolanaTx ?? null}
+                tier={trustScoreToTier(Number(driverReputation?.score ?? 500))}
+                size={168}
+              />
+              <div className="w-full pt-4 border-t border-slate-100 flex justify-around text-center">
+                <div>
+                  <p className="text-[10px] uppercase font-black tracking-tighter" style={{ color: MUTED }}>Star rating</p>
+                  <div className="flex items-center justify-center gap-1">
+                    <span className="text-lg font-black" style={{ color: INK }}>
+                      {((driverReputation?.avgRatingX100 || 500) / 100).toFixed(1)}
+                    </span>
+                    <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-black tracking-tighter" style={{ color: MUTED }}>Reviews</p>
+                  <p className="text-lg font-black" style={{ color: INK }}>{driverReputation?.ratingCount || driverRatings.length}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-black tracking-tighter" style={{ color: MUTED }}>Trips done</p>
+                  <p className="text-lg font-black" style={{ color: INK }}>{driverReputation?.completedTrips || 0}</p>
+                </div>
               </div>
-              <p className="text-sm font-bold" style={{ color: MUTED }}>{driverRatings.length} total reviews</p>
-              
-               <div className="mt-4 pt-4 border-t border-slate-100 flex justify-around">
-                <div>
-                  <p className="text-[10px] uppercase font-black tracking-tighter text-muted-foreground">Reputation Score</p>
-                  <p className="text-xl font-black" style={{ color: INK }}>{driverReputation?.score ?? 500}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase font-black tracking-tighter text-muted-foreground">Rating Count</p>
-                  <p className="text-xl font-black" style={{ color: INK }}>{driverReputation?.ratingCount || driverRatings.length}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase font-black tracking-tighter text-muted-foreground">Trips Done</p>
-                  <p className="text-xl font-black" style={{ color: INK }}>{driverReputation?.completedTrips || 0}</p>
-                </div>
-              </div>
+              {driverWalletAddress && (
+                <a
+                  href={`/verify/driver/${driverWalletAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] font-bold font-mono"
+                  style={{ color: CD }}
+                >
+                  View public trust passport →
+                </a>
+              )}
             </div>
 
             {/* Feedback List */}
