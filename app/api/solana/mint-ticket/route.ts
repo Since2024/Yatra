@@ -35,7 +35,13 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: true, receipt: existing, alreadyMinted: true });
         }
 
-        const bookingSnap = await adminDb.ref(getBookingReceiptPath(bookingId)).get();
+        let targetPath = `bookings/${bookingId}`;
+        let bookingSnap = await adminDb.ref(targetPath).get();
+        if (!bookingSnap.exists()) {
+            targetPath = `trips/${bookingId}`;
+            bookingSnap = await adminDb.ref(targetPath).get();
+        }
+
         if (!bookingSnap.exists()) {
             return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
         }
@@ -99,7 +105,7 @@ export async function POST(request: Request) {
         // ── Write idempotency record + booking receipt in parallel ───────────
         await Promise.all([
             adminDb.ref(`receipts/${bookingId}`).set(receiptData),
-            adminDb.ref(getBookingReceiptPath(bookingId)).update({
+            adminDb.ref(targetPath).update({
                 receipt: {
                     status: 'minted',
                     txSignature: receipt.signature,
