@@ -885,23 +885,49 @@ export default function DriverDashboard() {
       const { getFirebaseApp } = await import('@/lib/firebase');
       const db = getDatabase(getFirebaseApp());
 
-      // The `passengerId` argument here is the booking ID coming from PassengerList.
+      // The `passengerId` argument here is the booking ID coming from PassengerList or the trip ID.
       const bookingId = passengerId;
-      const bookingSnap = await get(ref(db, `bookings/${bookingId}`));
-      if (!bookingSnap.exists()) {
-        // Non-fatal: trip completed correctly, NFT minting is optional
-        console.warn('[Driver] Booking record not found for NFT minting:', bookingId);
-        toast({
-          title: 'Trip completed',
-          description: 'Receipt minting skipped (no linked booking).',
-        });
-        return;
-      }
+      let bookingData: DriverBookingLookup = {};
+      let truePassengerId: string | null = null;
+      let actualFare = 75;
+      let bookingRoute = selectedBus.route || 'Local Trip';
 
-      const bookingData = bookingSnap.val() as DriverBookingLookup;
-      const truePassengerId = bookingData.passengerId ?? null;
-      const actualFare = bookingData.fare || 75;
-      const bookingRoute = bookingData.route || selectedBus.route || 'Local Trip';
+      const bookingSnap = await get(ref(db, `bookings/${bookingId}`));
+      if (bookingSnap.exists()) {
+        const data = bookingSnap.val() as DriverBookingLookup;
+        bookingData = data;
+        truePassengerId = data.passengerId ?? null;
+        actualFare = data.fare || 75;
+        bookingRoute = data.route || selectedBus.route || 'Local Trip';
+      } else {
+        // Fallback to trips (for on-demand hailed trips)
+        const tripSnap = await get(ref(db, `trips/${bookingId}`));
+        if (tripSnap.exists()) {
+          const data = tripSnap.val();
+          bookingData = {
+            id: data.id,
+            passengerId: data.passengerId,
+            passengerName: data.passengerName,
+            fare: data.fare,
+            route: data.route
+          };
+          truePassengerId = data.passengerId ?? null;
+          actualFare = data.fare || 75;
+          bookingRoute = data.route || selectedBus.route || 'Local Trip';
+        } else {
+          // Non-fatal: trip completed correctly, NFT minting is optional
+          console.warn('[Driver] Booking or Trip record not found:', bookingId);
+          toast({
+            title: 'Trip completed',
+            description: 'Receipt minting skipped (record not found).',
+          });
+          // Still show the rating modal!
+          setRatingTripId(passengerId);
+          setRatingPassengerName('Passenger');
+          setShowRatingModal(true);
+          return;
+        }
+      }
 
       if (!truePassengerId) {
         toast({

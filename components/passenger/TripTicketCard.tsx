@@ -77,7 +77,8 @@ export default function TripTicketCard({
     booking: Booking; 
     onReclaim?: (id: string) => void;
 }) {
-    const { receipt, route, fare, vehicleType, timestamp } = booking;
+    const { receipt, route, fare, vehicleType, timestamp, createdAt } = booking;
+    const resolvedTimestamp = timestamp || createdAt;
     const emoji = getVehicleEmoji(vehicleType);
     const hasReceipt = !!receipt;
 
@@ -104,7 +105,7 @@ export default function TripTicketCard({
                         <div>
                             <p className="font-black text-foreground text-sm">{route || 'Trip'}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                                {getFormattedDate(timestamp)}
+                                {getFormattedDate(resolvedTimestamp)}
                             </p>
                         </div>
                     </div>

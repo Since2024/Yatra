@@ -128,6 +128,15 @@ export async function POST(request: Request) {
                 }
             }
 
+            if (status === 'completed' && resolvedFare <= 0) {
+                resolvedFare = 75; // Standard fallback fare
+                try {
+                    await tripRef.update({ fare: resolvedFare });
+                } catch (err: any) {
+                    console.error('[update-status] Failed to write fallback fare to trip record:', err.message);
+                }
+            }
+
             const statsRef = adminDb.ref(`users/${driverId}/stats`);
             await statsRef.transaction((currentStats) => {
                 const stats = currentStats || {
